@@ -18,7 +18,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/grafana/k8s-meta-cache/pkg/meta/cni"
+	"github.com/grafana/beyla-k8s-cache/pkg/meta/cni"
 )
 
 const (
@@ -158,22 +158,26 @@ func (k *Informers) initPodInformer(informerFactory informers.SharedInformerFact
 				"node", pod.Spec.NodeName, "startTime", startTime,
 				"containerIDs", containerIDs)
 		}
+		objectMeta := metav1.ObjectMeta{
+			Name:            pod.Name,
+			Namespace:       pod.Namespace,
+			UID:             pod.UID,
+			Labels:          pod.Labels,
+			OwnerReferences: pod.OwnerReferences,
+		}
 		return &PodInfo{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            pod.Name,
-				Namespace:       pod.Namespace,
-				UID:             pod.UID,
-				Labels:          pod.Labels,
-				OwnerReferences: pod.OwnerReferences,
-			},
+			ObjectMeta:   objectMeta,
 			Owner:        owner,
 			NodeName:     pod.Spec.NodeName,
 			StartTimeStr: startTime,
 			ContainerIDs: containerIDs,
+			// TODO: is this really needed?
 			IPInfo: IPInfo{
-				Kind:   typePod,
-				HostIP: pod.Status.HostIP,
-				IPs:    ips,
+				ObjectMeta: objectMeta,
+				Kind:       typePod,
+				HostIP:     pod.Status.HostIP,
+				IPs:        ips,
+				Owner:      owner,
 			},
 		}, nil
 	}); err != nil {
@@ -244,7 +248,6 @@ func (k *Informers) initNodeIPInformer(informerFactory informers.SharedInformerF
 			},
 			IPs:  ips,
 			Kind: typeNode,
-
 		}, nil
 	}); err != nil {
 		return fmt.Errorf("can't set nodesIP transform: %w", err)

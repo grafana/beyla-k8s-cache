@@ -33,7 +33,7 @@ type PodInfo struct {
 type IPInfo struct {
 	metav1.ObjectMeta
 	Kind  string
-	Owner Owner
+	Owner *Owner
 	IPs   []string
 	// Hostname and HostIP would be required only for Pod's IPInfo
 	HostName string

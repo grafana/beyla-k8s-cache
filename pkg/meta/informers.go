@@ -9,6 +9,7 @@ import (
 
 // containerEventHandler listens for the deletion of containers, as triggered
 // by a Pod deletion.
+// TODO: incorporate this into the informers
 type containerEventHandler interface {
 	OnDeletion(containerID []string)
 }
@@ -78,12 +79,12 @@ func (r *Informers) infoForIP(idx cache.Indexer, ip string) (any, bool) {
 	return objs[0], true
 }
 
-func (r *Informers) getOwner(meta *metav1.ObjectMeta, info *IPInfo) Owner {
+func (r *Informers) getOwner(meta *metav1.ObjectMeta, info *IPInfo) *Owner {
 	if len(meta.OwnerReferences) > 0 {
-		return *OwnerFrom(meta.OwnerReferences)
+		return OwnerFrom(meta.OwnerReferences)
 	}
 	// If no owner references found, return itself as owner
-	return Owner{
+	return &Owner{
 		Name: meta.Name,
 		Kind: info.Kind,
 	}
