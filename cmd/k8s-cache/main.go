@@ -3,45 +3,40 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
-	"log/slog"
-	"net/http"
-	"os"
-	"strings"
+	"fmt"
 	"time"
 
 	"github.com/grafana/beyla-k8s-cache/pkg/meta"
 )
 
-func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, Level: slog.LevelDebug})))
+type observer struct {
+	name string
+}
 
-	infors, err := meta.InitInformers(context.Background(), "", time.Minute, time.Minute)
+func (o *observer) ID() string {
+	return o.name
+}
+
+func (o *observer) Notify(event meta.Event) {
+	fmt.Println(o.name, ":", toJSON(event))
+}
+
+func main() {
+	//slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, Level: slog.LevelDebug})))
+
+	infors, err := meta.InitInformers(context.Background(), "", time.Minute)
 	if err != nil {
 		panic(err)
 	}
 
-	err = http.ListenAndServe(":8080", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Print(r.URL.Path)
-		path := strings.Split(r.URL.Path, "/")
-		switch path[1] {
-		case "ip":
-			if ipinfo, ok := infors.IPInfo(path[2]); ok {
-				w.Write(toJSON(ipinfo))
-				return
-			}
-		case "cnt":
-			if podinfo, ok := infors.ContainerPod(path[2]); ok {
-				w.Write(toJSON(podinfo))
-				return
-			}
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	panic(err)
+	infors.Subscribe(&observer{name: "observer1"})
+
+	infors.Subscribe(&observer{name: "observer2"})
+
+	time.Sleep(time.Second * 100000)
 }
 
-func toJSON(obj any) []byte {
+func toJSON(obj any) string {
 	content, _ := json.Marshal(obj)
-	return content
+	return string(content)
 }

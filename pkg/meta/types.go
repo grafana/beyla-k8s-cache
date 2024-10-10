@@ -6,23 +6,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type Provider interface {
-	ContainerPod(containerID string) (*PodInfo, bool)
-	IPInfo(ip string) (*IPInfo, bool)
-}
-
 // PodInfo contains precollected metadata for Pods.
 type PodInfo struct {
 	// Informers need that internal object is an ObjectMeta instance
 	metav1.ObjectMeta
 	NodeName string
 
-	Owner *Owner
-
 	// StartTimeStr caches value of ObjectMeta.StartTimestamp.String()
 	StartTimeStr string
 	ContainerIDs []string
 	IPInfo       IPInfo
+
+	// Pod's HostName would be retrieved from the POD HostIP by looking into the
+	// IPInfo cache
+	HostName string
+	HostIP   string
 }
 
 // IPInfo contains precollected metadata for Pods, Nodes and Services.
@@ -35,9 +33,6 @@ type IPInfo struct {
 	Kind  string
 	Owner *Owner
 	IPs   []string
-	// Hostname and HostIP would be required only for Pod's IPInfo
-	HostName string
-	HostIP   string
 }
 
 type Owner struct {
@@ -47,9 +42,18 @@ type Owner struct {
 	Owner *Owner
 }
 
-// OwnerFrom returns the most plausible Owner reference. It might be
+// ownerFrom returns the most plausible Owner reference. It might be
 // null if the entity does not have any owner
-func OwnerFrom(orefs []metav1.OwnerReference) *Owner {
+func ownerFrom(meta *metav1.ObjectMeta) *Owner {
+	orefs := meta.OwnerReferences
+	if len(orefs) == 0 {
+		// If no owner references found, return itself as owner
+		return &Owner{
+			Name: meta.Name,
+			Kind: "Pod",
+		}
+	}
+
 	// fallback will store any found owner that is not part of the bundled
 	// K8s owner types (e.g. argocd rollouts).
 	// It will be returned if any of the standard K8s owners are found
@@ -60,14 +64,14 @@ func OwnerFrom(orefs []metav1.OwnerReference) *Owner {
 			fallback = &Owner{Name: or.Name, Kind: or.Kind}
 			continue
 		}
-		return &Owner{Name: or.Name, Kind: or.Kind}
+		return (&Owner{Name: or.Name, Kind: or.Kind}).topOwner()
 	}
 	return fallback
 }
 
-// TopOwner returns the top Owner in the owner chain.
+// topOwner returns the top Owner in the owner chain.
 // For example, if the owner is a ReplicaSet, it will return the Deployment name.
-func (o *Owner) TopOwner() *Owner {
+func (o *Owner) topOwner() *Owner {
 	// we have two levels of ownership at most
 	if o != nil && o.Kind == "ReplicaSet" && o.Owner == nil {
 		// we heuristically extract the Deployment name from the replicaset name

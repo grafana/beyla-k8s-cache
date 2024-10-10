@@ -22,36 +22,15 @@ import (
 )
 
 const (
-	kubeConfigEnvVariable  = "KUBECONFIG"
-	defaultResyncTime      = 30 * time.Minute
-	defaultSyncTimeout     = 30 * time.Second
-	indexPodByContainerIDs = "idx_pod_by_container"
-	IndexIP                = "idx_ip"
-	typeNode               = "Node"
-	typePod                = "Pod"
-	typeService            = "Service"
+	kubeConfigEnvVariable = "KUBECONFIG"
+	typeNode              = "Node"
+	typePod               = "Pod"
+	typeService           = "Service"
 )
 
-var podIndexers = cache.Indexers{
-	indexPodByContainerIDs: func(obj interface{}) ([]string, error) {
-		pi := obj.(*PodInfo)
-		return pi.ContainerIDs, nil
-	},
-	IndexIP: func(obj interface{}) ([]string, error) {
-		pi := obj.(*PodInfo)
-		return pi.IPInfo.IPs, nil
-	},
-}
-
-var serviceAndNodeIndexers = cache.Indexers{
-	IndexIP: func(obj interface{}) ([]string, error) {
-		return obj.(*IPInfo).IPs, nil
-	},
-}
-
-func InitInformers(ctx context.Context, kubeconfigPath string, syncTimeout, resyncPeriod time.Duration) (*Informers, error) {
+func InitInformers(ctx context.Context, kubeconfigPath string, resyncPeriod time.Duration) (*Informers, error) {
 	log := slog.With("component", "kube.Informers")
-	k := &Informers{log: log}
+	k := &Informers{log: log, observers: make(map[string]Observer)}
 
 	kubeCfg, err := loadKubeconfig(kubeconfigPath)
 	if err != nil {
@@ -111,8 +90,6 @@ func loadKubeconfig(kubeConfigPath string) (*rest.Config, error) {
 func (k *Informers) initPodInformer(informerFactory informers.SharedInformerFactory) error {
 	pods := informerFactory.Core().V1().Pods().Informer()
 
-	k.initContainerListeners(pods)
-
 	// Transform any *v1.Pod instance into a *PodInfo instance to save space
 	// in the informer's cache
 	if err := pods.SetTransform(func(i interface{}) (interface{}, error) {
@@ -145,12 +122,13 @@ func (k *Informers) initPodInformer(informerFactory informers.SharedInformerFact
 		ips := make([]string, 0, len(pod.Status.PodIPs))
 		for _, ip := range pod.Status.PodIPs {
 			// ignoring host-networked Pod IPs
+			// TODO: check towards all the Status.HostIPs slice
 			if ip.IP != pod.Status.HostIP {
 				ips = append(ips, ip.IP)
 			}
 		}
 
-		owner := OwnerFrom(pod.OwnerReferences)
+		owner := ownerFrom(&pod.ObjectMeta)
 		startTime := pod.GetCreationTimestamp().String()
 		if k.log.Enabled(context.TODO(), slog.LevelDebug) {
 			k.log.Debug("inserting pod", "name", pod.Name, "namespace", pod.Namespace,
@@ -167,50 +145,45 @@ func (k *Informers) initPodInformer(informerFactory informers.SharedInformerFact
 		}
 		return &PodInfo{
 			ObjectMeta:   objectMeta,
-			Owner:        owner,
 			NodeName:     pod.Spec.NodeName,
 			StartTimeStr: startTime,
 			ContainerIDs: containerIDs,
-			// TODO: is this really needed?
 			IPInfo: IPInfo{
 				ObjectMeta: objectMeta,
 				Kind:       typePod,
-				HostIP:     pod.Status.HostIP,
 				IPs:        ips,
 				Owner:      owner,
 			},
+			HostIP: pod.Status.HostIP,
 		}, nil
 	}); err != nil {
 		return fmt.Errorf("can't set pods transform: %w", err)
 	}
-	if err := pods.AddIndexers(podIndexers); err != nil {
-		return fmt.Errorf("can't add indexers to Pods informer: %w", err)
+
+	_, err := pods.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			k.Notify(Event{Type: Create, Pod: obj.(*PodInfo)})
+		},
+		UpdateFunc: func(_, newObj interface{}) {
+			k.Notify(Event{Type: Update, Pod: newObj.(*PodInfo)})
+		},
+		DeleteFunc: func(obj interface{}) {
+			k.Notify(Event{Type: Delete, Pod: obj.(*PodInfo)})
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("can't register Pod event handler in the K8s informer: %w", err)
 	}
+	k.log.Debug("registered Pod event handler in the K8s informer")
 
 	k.pods = pods
 	return nil
 }
 
-// initContainerListeners listens for deletions of pods, to forward them to the ContainerEventHandler subscribers.
-func (k *Informers) initContainerListeners(pods cache.SharedIndexInformer) {
-	if _, err := pods.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		DeleteFunc: func(obj interface{}) {
-			pod := obj.(*PodInfo)
-			k.log.Debug("deleting containers for pod", "pod", pod.Name, "containers", pod.ContainerIDs)
-			for _, listener := range k.containerEventHandlers {
-				listener.OnDeletion(pod.ContainerIDs)
-			}
-		},
-	}); err != nil {
-		k.log.Warn("can't attach container listener to the Kubernetes informer."+
-			" Your kubernetes metadata might be outdated in the long term", "error", err)
-	}
-}
-
 // rmContainerIDSchema extracts the hex ID of a container ID that is provided in the form:
 // containerd://40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9
 func rmContainerIDSchema(containerID string) string {
-	if parts := strings.Split(containerID, "://"); len(parts) > 1 {
+	if parts := strings.SplitN(containerID, "://", 2); len(parts) > 1 {
 		return parts[1]
 	}
 	return containerID
@@ -250,12 +223,26 @@ func (k *Informers) initNodeIPInformer(informerFactory informers.SharedInformerF
 			Kind: typeNode,
 		}, nil
 	}); err != nil {
-		return fmt.Errorf("can't set nodesIP transform: %w", err)
+		return fmt.Errorf("can't set nodes transform: %w", err)
 	}
-	if err := nodes.AddIndexers(serviceAndNodeIndexers); err != nil {
-		return fmt.Errorf("can't add %s indexer to Nodes informer: %w", IndexIP, err)
+
+	_, err := nodes.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			k.Notify(Event{Type: Create, IP: obj.(*IPInfo)})
+		},
+		UpdateFunc: func(_, newObj interface{}) {
+			k.Notify(Event{Type: Update, IP: newObj.(*IPInfo)})
+		},
+		DeleteFunc: func(obj interface{}) {
+			k.Notify(Event{Type: Delete, IP: obj.(*IPInfo)})
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("can't register Node event handler in the K8s informer: %w", err)
 	}
-	k.nodesIP = nodes
+	k.log.Debug("registered Node event handler in the K8s informer")
+
+	k.nodes = nodes
 	return nil
 }
 
@@ -289,12 +276,25 @@ func (k *Informers) initServiceIPInformer(informerFactory informers.SharedInform
 			IPs:  svc.Spec.ClusterIPs,
 		}, nil
 	}); err != nil {
-		return fmt.Errorf("can't set servicesIP transform: %w", err)
-	}
-	if err := services.AddIndexers(serviceAndNodeIndexers); err != nil {
-		return fmt.Errorf("can't add %s indexer to Pods informer: %w", IndexIP, err)
+		return fmt.Errorf("can't set services transform: %w", err)
 	}
 
-	k.servicesIP = services
+	_, err := services.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			k.Notify(Event{Type: Create, IP: obj.(*IPInfo)})
+		},
+		UpdateFunc: func(_, newObj interface{}) {
+			k.Notify(Event{Type: Update, IP: newObj.(*IPInfo)})
+		},
+		DeleteFunc: func(obj interface{}) {
+			k.Notify(Event{Type: Delete, IP: obj.(*IPInfo)})
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("can't register Service event handler in the K8s informer: %w", err)
+	}
+	k.log.Debug("registered Service event handler in the K8s informer")
+
+	k.services = services
 	return nil
 }
