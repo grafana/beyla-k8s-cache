@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/peer"
 
 	"github.com/grafana/beyla-k8s-cache/pkg/informer"
 	"github.com/grafana/beyla-k8s-cache/pkg/meta"
@@ -18,12 +19,12 @@ import (
 const port = 8999
 
 type observer struct {
-	msg    *informer.SubscribeMessage
+	id     string
 	server grpc.ServerStreamingServer[informer.Event]
 }
 
 func (o *observer) ID() string {
-	return o.msg.String()
+	return o.id
 }
 
 func (o *observer) On(event *informer.Event) {
@@ -39,7 +40,12 @@ type server struct {
 }
 
 func (s *server) Subscribe(msg *informer.SubscribeMessage, server grpc.ServerStreamingServer[informer.Event]) error {
-	o := &observer{msg: msg, server: server}
+	// extract peer information to identify it
+	p, ok := peer.FromContext(server.Context())
+	if !ok {
+		return fmt.Errorf("failed to extract peer information")
+	}
+	o := &observer{id: p.Addr.String(), server: server}
 	slog.Info("subscribed component", "id", o.ID())
 	s.informers.Subscribe(o)
 	// Keep the connection open
