@@ -11,13 +11,13 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/grafana/beyla-k8s-cache/pkg/informer"
 	"github.com/grafana/beyla-k8s-cache/pkg/meta/cni"
 )
 
@@ -96,11 +96,11 @@ func (k *Informers) initPodInformer(informerFactory informers.SharedInformerFact
 		pod, ok := i.(*v1.Pod)
 		if !ok {
 			// it's Ok. The K8s library just informed from an entity
-			// that has been previously transformed/stored
-			if pi, ok := i.(*PodInfo); ok {
+			// that has been previously transformed/stored/deleted
+			if pi, ok := i.(*indexableEntity); ok {
 				return pi, nil
 			}
-			return nil, fmt.Errorf("was expecting a PodInfo. Got: %T", i)
+			return nil, fmt.Errorf("was expecting a *v1.Pod. Got: %T", i)
 		}
 		containerIDs := make([]string, 0,
 			len(pod.Status.ContainerStatuses)+
@@ -128,33 +128,33 @@ func (k *Informers) initPodInformer(informerFactory informers.SharedInformerFact
 			}
 		}
 
-		owner := ownerFrom(&pod.ObjectMeta)
+		ownerKind, ownerName := ownerFrom(&pod.ObjectMeta)
 		startTime := pod.GetCreationTimestamp().String()
 		if k.log.Enabled(context.TODO(), slog.LevelDebug) {
 			k.log.Debug("inserting pod", "name", pod.Name, "namespace", pod.Namespace,
-				"uid", pod.UID, "owner", owner,
+				"uid", pod.UID, "ownerKind", ownerKind, "ownerName", ownerName,
 				"node", pod.Spec.NodeName, "startTime", startTime,
 				"containerIDs", containerIDs)
 		}
-		objectMeta := metav1.ObjectMeta{
-			Name:            pod.Name,
-			Namespace:       pod.Namespace,
-			UID:             pod.UID,
-			Labels:          pod.Labels,
-			OwnerReferences: pod.OwnerReferences,
-		}
-		return &PodInfo{
-			ObjectMeta:   objectMeta,
-			NodeName:     pod.Spec.NodeName,
-			StartTimeStr: startTime,
-			ContainerIDs: containerIDs,
-			IPInfo: IPInfo{
-				ObjectMeta: objectMeta,
-				Kind:       typePod,
-				IPs:        ips,
-				Owner:      owner,
+
+		return &indexableEntity{
+			ObjectMeta: pod.ObjectMeta,
+			Pod: &informer.PodInfo{
+				IpInfo: &informer.IPInfo{
+					Name:      pod.Name,
+					Namespace: pod.Namespace,
+					Labels:    pod.Labels,
+					Ips:       ips,
+					Kind:      "Pod",
+				},
+				Uid:          string(pod.UID),
+				NodeName:     pod.Spec.NodeName,
+				StartTimeStr: startTime,
+				ContainerIds: containerIDs,
+				OwnerName:    ownerName,
+				OwnerKind:    ownerKind,
+				HostIp:       pod.Status.HostIP,
 			},
-			HostIP: pod.Status.HostIP,
 		}, nil
 	}); err != nil {
 		return fmt.Errorf("can't set pods transform: %w", err)
@@ -162,18 +162,31 @@ func (k *Informers) initPodInformer(informerFactory informers.SharedInformerFact
 
 	_, err := pods.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			k.Notify(Event{Type: Create, Pod: obj.(*PodInfo)})
+			ie := obj.(*indexableEntity)
+			k.Notify(&informer.Event{
+				Type:     informer.EventType_CREATED,
+				Resource: &informer.Event_Pod{Pod: ie.Pod},
+			})
 		},
 		UpdateFunc: func(_, newObj interface{}) {
-			k.Notify(Event{Type: Update, Pod: newObj.(*PodInfo)})
+			ie := newObj.(*indexableEntity)
+			k.Notify(&informer.Event{
+				Type:     informer.EventType_UPDATED,
+				Resource: &informer.Event_Pod{Pod: ie.Pod},
+			})
 		},
 		DeleteFunc: func(obj interface{}) {
-			k.Notify(Event{Type: Delete, Pod: obj.(*PodInfo)})
+			ie := obj.(*indexableEntity)
+			k.Notify(&informer.Event{
+				Type:     informer.EventType_DELETED,
+				Resource: &informer.Event_Pod{Pod: ie.Pod},
+			})
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("can't register Pod event handler in the K8s informer: %w", err)
 	}
+
 	k.log.Debug("registered Pod event handler in the K8s informer")
 
 	k.pods = pods
@@ -198,10 +211,10 @@ func (k *Informers) initNodeIPInformer(informerFactory informers.SharedInformerF
 		if !ok {
 			// it's Ok. The K8s library just informed from an entity
 			// that has been previously transformed/stored
-			if pi, ok := i.(*IPInfo); ok {
+			if pi, ok := i.(*indexableEntity); ok {
 				return pi, nil
 			}
-			return nil, fmt.Errorf("was expecting a IPInfo. Got: %T", i)
+			return nil, fmt.Errorf("was expecting a *v1.Node. Got: %T", i)
 		}
 		ips := make([]string, 0, len(node.Status.Addresses))
 		for _, address := range node.Status.Addresses {
@@ -213,31 +226,21 @@ func (k *Informers) initNodeIPInformer(informerFactory informers.SharedInformerF
 		// CNI-dependent logic (must work regardless of whether the CNI is installed)
 		ips = cni.AddOvnIPs(ips, node)
 
-		return &IPInfo{
-			ObjectMeta: metav1.ObjectMeta{
+		return &indexableEntity{
+			ObjectMeta: node.ObjectMeta,
+			IPInfo: &informer.IPInfo{
 				Name:      node.Name,
 				Namespace: node.Namespace,
 				Labels:    node.Labels,
+				Ips:       ips,
+				Kind:      typeNode,
 			},
-			IPs:  ips,
-			Kind: typeNode,
 		}, nil
 	}); err != nil {
 		return fmt.Errorf("can't set nodes transform: %w", err)
 	}
 
-	_, err := nodes.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			k.Notify(Event{Type: Create, IP: obj.(*IPInfo)})
-		},
-		UpdateFunc: func(_, newObj interface{}) {
-			k.Notify(Event{Type: Update, IP: newObj.(*IPInfo)})
-		},
-		DeleteFunc: func(obj interface{}) {
-			k.Notify(Event{Type: Delete, IP: obj.(*IPInfo)})
-		},
-	})
-	if err != nil {
+	if _, err := nodes.AddEventHandler(k.ipInfoEventHandler()); err != nil {
 		return fmt.Errorf("can't register Node event handler in the K8s informer: %w", err)
 	}
 	k.log.Debug("registered Node event handler in the K8s informer")
@@ -255,46 +258,58 @@ func (k *Informers) initServiceIPInformer(informerFactory informers.SharedInform
 		if !ok {
 			// it's Ok. The K8s library just informed from an entity
 			// that has been previously transformed/stored
-			if pi, ok := i.(*IPInfo); ok {
+			if pi, ok := i.(*indexableEntity); ok {
 				return pi, nil
 			}
-			return nil, fmt.Errorf("was expecting a IPInfo. Got: %T", i)
+			return nil, fmt.Errorf("was expecting a *v1.Service. Got: %T", i)
 		}
 		if svc.Spec.ClusterIP == v1.ClusterIPNone {
 			// this will be normal for headless services
 			k.log.Debug("Service doesn't have any ClusterIP. Beyla won't decorate their flows",
 				"namespace", svc.Namespace, "name", svc.Name)
 		}
-		return &IPInfo{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            svc.Name,
-				Namespace:       svc.Namespace,
-				Labels:          svc.Labels,
-				OwnerReferences: svc.OwnerReferences,
+		return &indexableEntity{
+			ObjectMeta: svc.ObjectMeta,
+			IPInfo: &informer.IPInfo{
+				Name:      svc.Name,
+				Namespace: svc.Namespace,
+				Labels:    svc.Labels,
+				Ips:       svc.Spec.ClusterIPs,
+				Kind:      typeService,
 			},
-			Kind: typeService,
-			IPs:  svc.Spec.ClusterIPs,
 		}, nil
 	}); err != nil {
 		return fmt.Errorf("can't set services transform: %w", err)
 	}
 
-	_, err := services.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			k.Notify(Event{Type: Create, IP: obj.(*IPInfo)})
-		},
-		UpdateFunc: func(_, newObj interface{}) {
-			k.Notify(Event{Type: Update, IP: newObj.(*IPInfo)})
-		},
-		DeleteFunc: func(obj interface{}) {
-			k.Notify(Event{Type: Delete, IP: obj.(*IPInfo)})
-		},
-	})
-	if err != nil {
+	if _, err := services.AddEventHandler(k.ipInfoEventHandler()); err != nil {
 		return fmt.Errorf("can't register Service event handler in the K8s informer: %w", err)
 	}
 	k.log.Debug("registered Service event handler in the K8s informer")
 
 	k.services = services
 	return nil
+}
+
+func (k *Informers) ipInfoEventHandler() *cache.ResourceEventHandlerFuncs {
+	return &cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			k.Notify(&informer.Event{
+				Type:     informer.EventType_CREATED,
+				Resource: &informer.Event_IpInfo{IpInfo: obj.(*indexableEntity).IPInfo},
+			})
+		},
+		UpdateFunc: func(_, newObj interface{}) {
+			k.Notify(&informer.Event{
+				Type:     informer.EventType_UPDATED,
+				Resource: &informer.Event_IpInfo{IpInfo: newObj.(*indexableEntity).IPInfo},
+			})
+		},
+		DeleteFunc: func(obj interface{}) {
+			k.Notify(&informer.Event{
+				Type:     informer.EventType_DELETED,
+				Resource: &informer.Event_IpInfo{IpInfo: obj.(*indexableEntity).IPInfo},
+			})
+		},
+	}
 }

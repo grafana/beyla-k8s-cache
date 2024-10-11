@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package informer;
 
-import "google/protobuf/timestamp.proto";
+option go_package = "./informer";
 
 // EventType represents the type of event.
 enum EventType {
@@ -11,32 +11,43 @@ enum EventType {
   DELETED = 2;
 }
 
-// ResourceType represents the type of Kubernetes resource.
-enum ResourceType {
-  POD = 0;
-  NODE = 1;
-  SERVICE = 2;
+message IPInfo {
+  string name = 1;
+  string namespace = 2;
+  map<string,string> labels = 3;
+  repeated string ips = 4;
+  string kind = 5;
+}
+
+message PodInfo {
+  IPInfo ip_info = 1;
+  string uid = 2;
+  string owner_name = 3;
+  string owner_kind = 4;
+  string node_name = 5;
+  string start_time_str = 6;
+  repeated string container_ids = 7;
+  string host_name = 8;
+  string host_ip = 9;
 }
 
 // Event represents a single event.
 message Event {
-  EventType event_type = 1;
-  ResourceType resource_type = 2;
-  string resource_name = 3;
-  google.protobuf.Timestamp timestamp = 4;
+  // Todo: add timestamp:
+  // - avoids out-of-order events coming from different informers (local vs remote)
+  // - on failure/reconnection you don't need to receive all the events again
+  EventType type = 1;
   oneof resource {
-    string jar = 5;
-    string clar = 6;
+    PodInfo pod = 2;
+    IPInfo ip_info = 3;
   }
 }
 
-// SubscribeRequest is the request message for subscribing to events.
-message SubscribeRequest {
-  repeated ResourceType resource_types = 1;
-}
+// Empty message for Subscribe RPC
+message SubscribeMessage {}
 
 // EventStreamService defines the gRPC service for event streaming.
 service EventStreamService {
   // Subscribe allows clients to subscribe to a stream of events.
-  rpc Subscribe(SubscribeRequest) returns (stream Event);
+  rpc Subscribe(SubscribeMessage) returns (stream Event);
 }

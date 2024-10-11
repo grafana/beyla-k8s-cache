@@ -6,4 +6,4 @@ protoc-image-build:
 
 .PHONY: protoc-gen
 protoc-gen:
-	docker run --rm -v $(PWD):/work -w /work $(PROTOC_IMAGE) protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/*.proto
+	docker run --rm -v $(PWD):/work -w /work $(PROTOC_IMAGE) protoc --go_out=pkg --go-grpc_out=pkg proto/informer.proto

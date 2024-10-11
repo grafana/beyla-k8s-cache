@@ -46,9 +46,9 @@ spec:
         - name: beyla-cache
           image: grafana/beyla-k8s-cache:dev
           ports:
-            - containerPort: 8080
+            - containerPort: 8999
               protocol: TCP
-              name: http
+              name: protobuf
 ---
 kind: Service
 apiVersion: v1
@@ -58,6 +58,6 @@ spec:
   selector:
     instrumentation: "beyla-cache"
   ports:
-    - port: 8080
+    - port: 8999
       protocol: TCP
-      targetPort: http
+      targetPort: protobuf
