@@ -11,24 +11,26 @@ enum EventType {
   DELETED = 2;
 }
 
-message IPInfo {
+message ObjectMeta {
   string name = 1;
   string namespace = 2;
   map<string,string> labels = 3;
   repeated string ips = 4;
   string kind = 5;
+
+  // If the Kube object is not a Pod, this field will be empty.
+  optional PodInfo pod = 6;
 }
 
 message PodInfo {
-  IPInfo ip_info = 1;
-  string uid = 2;
-  string owner_name = 3;
-  string owner_kind = 4;
-  string node_name = 5;
-  string start_time_str = 6;
-  repeated string container_ids = 7;
-  string host_name = 8;
-  string host_ip = 9;
+  string uid = 1;
+  string owner_name = 2;
+  string owner_kind = 3;
+  string node_name = 4;
+  string start_time_str = 5;
+  repeated string container_ids = 6;
+  string host_name = 7;
+  string host_ip = 8;
 }
 
 // Event represents a single event.
@@ -37,10 +39,7 @@ message Event {
   // - avoids out-of-order events coming from different informers (local vs remote)
   // - on failure/reconnection you don't need to receive all the events again
   EventType type = 1;
-  oneof resource {
-    PodInfo pod = 2;
-    IPInfo ip_info = 3;
-  }
+  ObjectMeta resource = 2;
 }
 
 // Empty message for Subscribe RPC
