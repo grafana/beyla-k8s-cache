@@ -29,8 +29,7 @@ message PodInfo {
   string node_name = 4;
   string start_time_str = 5;
   repeated string container_ids = 6;
-  string host_name = 7;
-  string host_ip = 8;
+  string host_ip = 7;
 }
 
 // Event represents a single event.
