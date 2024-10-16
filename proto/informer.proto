@@ -24,12 +24,16 @@ message ObjectMeta {
 
 message PodInfo {
   string uid = 1;
-  string owner_name = 2;
-  string owner_kind = 3;
-  string node_name = 4;
-  string start_time_str = 5;
-  repeated string container_ids = 6;
-  string host_ip = 7;
+  string node_name = 2;
+  string start_time_str = 3;
+  string host_ip = 4;
+  repeated string container_ids = 5;
+  repeated Owner owners = 6;
+}
+
+message Owner {
+  string name = 1;
+  string kind = 2;
 }
 
 // Event represents a single event.
