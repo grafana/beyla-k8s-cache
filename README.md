@@ -12,3 +12,4 @@ kubectl apply -f deployments/app.yml
 * Add synchronization complete signal in "welcome message" of subscribe
 * Don't send UPDATE messages unless there is a useful change in the object properties
 * Add a timestamp to the events, and let Beyla query for events younger than a given timestamp, to optimize reconnections
+* Release versioned docker images

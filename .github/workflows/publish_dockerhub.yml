@@ -1,0 +1,27 @@
+on:
+  push:
+    branches:
+      - main
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - id: checkout
+        uses: actions/checkout@v4
+
+      - id: push-to-dockerhub
+        uses: grafana/shared-workflows/actions/build-push-to-dockerhub@main
+        with:
+          repository: beyla-k8s-cache
+          context: .
+          platforms: |-
+            "linux/amd64"
+            "linux/arm64"
+          # TODO: Properly set for releases and even PRs with expiration
+          # https://github.com/docker/metadata-action?tab=readme-ov-file#tags-input
+          tags: |-
+            "main"
