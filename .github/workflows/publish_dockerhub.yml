@@ -28,3 +28,4 @@ jobs:
           # https://github.com/docker/metadata-action?tab=readme-ov-file#tags-input
           tags: |-
             "main"
+          push: true
