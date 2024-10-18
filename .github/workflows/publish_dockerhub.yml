@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   id-token: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,7 +20,7 @@ jobs:
       - id: push-to-dockerhub
         uses: grafana/shared-workflows/actions/build-push-to-dockerhub@main
         with:
-          repository: beyla-k8s-cache
+          repository: grafana/beyla-k8s-cache
           context: .
           # cache image layers from/to github actions internal cache, for faster building
           cache-from: type=gha
