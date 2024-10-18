@@ -27,8 +27,13 @@ message PodInfo {
   string node_name = 2;
   string start_time_str = 3;
   string host_ip = 4;
-  repeated string container_ids = 5;
+  repeated ContainerInfo containers = 5;
   repeated Owner owners = 6;
+}
+
+message ContainerInfo {
+  string id = 1;
+  map<string,string> env = 2;
 }
 
 message Owner {

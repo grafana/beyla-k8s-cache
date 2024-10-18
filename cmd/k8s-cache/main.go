@@ -39,7 +39,7 @@ type server struct {
 	informers *meta.Informers
 }
 
-func (s *server) Subscribe(msg *informer.SubscribeMessage, server grpc.ServerStreamingServer[informer.Event]) error {
+func (s *server) Subscribe(msg *informer.SubscribeMessage, server informer.EventStreamService_SubscribeServer) error {
 	// extract peer information to identify it
 	p, ok := peer.FromContext(server.Context())
 	if !ok {
