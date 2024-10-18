@@ -1,7 +1,10 @@
+# TODO: trigger only if testing or any other checks previously succeeded
+name: Push to DockerHub
 on:
   push:
     branches:
       - main
+
 permissions:
   contents: read
   id-token: write

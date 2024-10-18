@@ -62,7 +62,7 @@ func (s *server) Subscribe(msg *informer.SubscribeMessage, server grpc.ServerStr
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, Level: slog.LevelDebug})))
 
-	infors, err := meta.InitInformers(context.Background(), "", time.Minute)
+	infors, err := meta.InitInformers(context.Background(), meta.WithResyncPeriod(30*time.Minute))
 	if err != nil {
 		panic(err)
 	}
