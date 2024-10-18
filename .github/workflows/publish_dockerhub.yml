@@ -21,6 +21,9 @@ jobs:
         with:
           repository: beyla-k8s-cache
           context: .
+          # cache image layers from/to github actions internal cache, for faster building
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           platforms: |-
             "linux/amd64"
             "linux/arm64"
