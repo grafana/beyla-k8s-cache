@@ -28,7 +28,7 @@ jobs:
           platforms: |-
             "linux/amd64"
             "linux/arm64"
-          # TODO: Properly set for releases and even PRs with expiration
+          # TODO: Properly set tags for releases and even PRs with expiration
           # https://github.com/docker/metadata-action?tab=readme-ov-file#tags-input
           tags: |-
             "main"
