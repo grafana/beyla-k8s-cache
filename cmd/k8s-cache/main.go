@@ -1,12 +1,13 @@
 package main
 
 import (
-	context "context"
+	"context"
 	"fmt"
 	"log"
 	"log/slog"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
@@ -16,7 +17,7 @@ import (
 	"github.com/grafana/beyla-k8s-cache/pkg/meta"
 )
 
-const port = 8999
+const defaultPort = 50055
 
 type observer struct {
 	id     string
@@ -61,6 +62,16 @@ func (s *server) Subscribe(msg *informer.SubscribeMessage, server informer.Event
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, Level: slog.LevelDebug})))
+
+	port := defaultPort
+	portStr := os.Getenv("BEYLA_K8S_CACHE_PORT")
+	if portStr != "" {
+		var err error
+		if port, err = strconv.Atoi(portStr); err != nil {
+			slog.Error("invalid BEYLA_K8S_CACHE_PORT, using default port", "error", err)
+			port = defaultPort
+		}
+	}
 
 	infors, err := meta.InitInformers(context.Background(), meta.WithResyncPeriod(30*time.Minute))
 	if err != nil {
