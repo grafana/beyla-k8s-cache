@@ -40,7 +40,7 @@ type server struct {
 	informers *meta.Informers
 }
 
-func (s *server) Subscribe(msg *informer.SubscribeMessage, server informer.EventStreamService_SubscribeServer) error {
+func (s *server) Subscribe(_ *informer.SubscribeMessage, server informer.EventStreamService_SubscribeServer) error {
 	// extract peer information to identify it
 	p, ok := peer.FromContext(server.Context())
 	if !ok {
@@ -50,14 +50,10 @@ func (s *server) Subscribe(msg *informer.SubscribeMessage, server informer.Event
 	slog.Info("subscribed component", "id", o.ID())
 	s.informers.Subscribe(o)
 	// Keep the connection open
-	for {
-		select {
-		case <-server.Context().Done():
-			log.Printf("Client %s disconnected", o.ID())
-			s.informers.Unsubscribe(o)
-			return nil
-		}
-	}
+	<-server.Context().Done()
+	log.Printf("Client %s disconnected", o.ID())
+	s.informers.Unsubscribe(o)
+	return nil
 }
 
 func main() {
