@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+//	. "github.com/onsi/ginkgo/v2"
+//	. "github.com/onsi/gomega"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -48,29 +49,20 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Controller Suite")
-}
-
-var _ = BeforeSuite(func() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, Level: slog.LevelDebug})))
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
-	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{}
 
 	cfg, err := testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
+	require.NoError(t, err)
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
+	require.NoError(t, err)
 
 	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{Scheme: scheme.Scheme})
-	Expect(err).ToNot(HaveOccurred())
-	Expect(k8sManager).NotTo(BeNil())
+	require.NoError(t, err)
 
 	svc := service.InformersCache{
 		Port: 50055, // TODO: get it automatically
@@ -78,7 +70,7 @@ var _ = BeforeSuite(func() {
 
 	config := k8sManager.GetConfig()
 	theClient, err = kubernetes.NewForConfig(config)
-	Expect(err).ToNot(HaveOccurred())
+	require.NoError(t, err)
 
 	err = k8sClient.Create(ctx, &corev1.Pod{
 		ObjectMeta: v1.ObjectMeta{
@@ -91,52 +83,45 @@ var _ = BeforeSuite(func() {
 			},
 		},
 	})
-	//_, err := theClient.CoreV1().Pods("default").Create(ctx, &corev1.Pod{
-	//}, v1.CreateOptions{})
-	Expect(err).NotTo(HaveOccurred())
+	require.NoError(t, err)
 
 	go func() {
-		err = svc.Run(ctx,
+		require.NoError(t, svc.Run(ctx,
 			meta.WithResyncPeriod(30*time.Minute),
 			meta.WithKubeClient(theClient),
-		)
-		Expect(err).ToNot(HaveOccurred())
+		))
 	}()
 
 	go func() {
-		defer GinkgoRecover()
 		err = k8sManager.Start(ctx)
-		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
+		require.NoError(t, err)
 	}()
-})
 
-var _ = AfterSuite(func() {
-	cancel()
-	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
-})
+	/*
+	   var _ = AfterSuite(func() {
+	   	cancel()
+	   	By("tearing down the test environment")
+	   	err := testEnv.Stop()
+	   	Expect(err).NotTo(HaveOccurred())
+	   })
+	*/
 
-var _ = Describe("FlowCollector Controller", Ordered, Serial, func() {
-	Context("foo", func() {
-		It("should create a pod", func() {
-			//time.Sleep(5 * time.Second)
-			By("creating a pod")
-			err := k8sClient.Create(ctx, &corev1.Pod{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-podacacao",
-					Namespace: "default",
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{Name: "test-container", Image: "nginx"},
-					},
-				},
-			})
-			//_, err := theClient.CoreV1().Pods("default").Create(ctx, &corev1.Pod{
-			//}, v1.CreateOptions{})
-			Expect(err).NotTo(HaveOccurred())
-			time.Sleep(5 * time.Second)
-		})
+	time.Sleep(5 * time.Second)
+
+	err = k8sClient.Create(ctx, &corev1.Pod{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "test-podacacao",
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "test-container", Image: "nginx"},
+			},
+		},
 	})
-})
+	//_, err := theClient.CoreV1().Pods("default").Create(ctx, &corev1.Pod{
+	//}, v1.CreateOptions{})
+	require.NoError(t, err)
+
+	time.Sleep(5 * time.Second)
+}
