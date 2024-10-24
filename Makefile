@@ -63,6 +63,14 @@ __check_defined = \
 GOLANGCI_LINT = $(TOOLS_DIR)/golangci-lint
 GOIMPORTS_REVISER = $(TOOLS_DIR)/goimports-reviser
 GO_LICENSES = $(TOOLS_DIR)/go-licenses
+ENVTEST = $(TOOLS_DIR)/setup-envtest
+ENVTEST_K8S_VERSION = 1.30.0
+
+# Setting SHELL to bash allows bash commands to be executed by recipes.
+# This is a requirement for 'setup-envtest.sh' in the test target.
+# Options are set to exit when a recipe line exits non-zero or a piped command fails.
+SHELL = /usr/bin/env bash -o pipefail
+.SHELLFLAGS = -ec
 
 GOIMPORTS_REVISER_ARGS = -company-prefixes github.com/grafana -project-name github.com/grafana/beyla-k8s-cache/
 
@@ -79,6 +87,7 @@ prereqs:
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,v1.60.3)
 	$(call go-install-tool,$(GOIMPORTS_REVISER),github.com/incu6us/goimports-reviser/v3,v3.6.4)
 	$(call go-install-tool,$(GO_LICENSES),github.com/google/go-licenses,v1.6.0)
+	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,latest)
 
 .PHONY: fmt
 fmt: prereqs
@@ -123,9 +132,15 @@ compile-for-coverage:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -mod vendor -cover -a -o bin/$(CMD) $(MAIN_GO_FILE)
 
 .PHONY: test
-test:
+test: integration-test
 	@echo "### Testing code"
-	go test -race -mod vendor -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	go test -race -mod vendor -a ./pkg/... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+
+# TODO: merge coverage with test
+.PHONY: envtest
+integration-test: prereqs
+	@echo "### Integration testing"
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./envtest/... -coverpkg=./... -coverprofile cover.envtest.out
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated:

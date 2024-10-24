@@ -34,6 +34,8 @@ type informersConfig struct {
 	resyncPeriod    time.Duration
 	disableNodes    bool
 	disableServices bool
+
+	kubeClient kubernetes.Interface
 }
 
 type InformerOption func(*informersConfig)
@@ -62,6 +64,12 @@ func WithoutServices() InformerOption {
 	}
 }
 
+func WithKubeClient(client kubernetes.Interface) InformerOption {
+	return func(c *informersConfig) {
+		c.kubeClient = client
+	}
+}
+
 func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, error) {
 	config := &informersConfig{resyncPeriod: 30 * time.Minute}
 	for _, opt := range opts {
@@ -70,16 +78,18 @@ func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, err
 	log := slog.With("component", "kube.Informers")
 	k := &Informers{log: log, config: config, BaseNotifier: NewBaseNotifier()}
 
-	kubeCfg, err := loadKubeconfig(config.kubeConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("kubeconfig can't be loaded: %w", err)
-	}
-	kubeClient, err := kubernetes.NewForConfig(kubeCfg)
-	if err != nil {
-		return nil, fmt.Errorf("kubernetes client can't be initialized: %w", err)
+	if config.kubeClient == nil {
+		kubeCfg, err := loadKubeconfig(config.kubeConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("kubeconfig can't be loaded: %w", err)
+		}
+		config.kubeClient, err = kubernetes.NewForConfig(kubeCfg)
+		if err != nil {
+			return nil, fmt.Errorf("kubernetes client can't be initialized: %w", err)
+		}
 	}
 
-	informerFactory := informers.NewSharedInformerFactory(kubeClient, config.resyncPeriod)
+	informerFactory := informers.NewSharedInformerFactory(config.kubeClient, config.resyncPeriod)
 
 	if err := k.initPodInformer(informerFactory); err != nil {
 		return nil, err
@@ -100,6 +110,7 @@ func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, err
 	informerFactory.WaitForCacheSync(ctx.Done())
 	k.log.Debug("kubernetes informers started")
 	return k, nil
+
 }
 
 func loadKubeconfig(kubeConfigPath string) (*rest.Config, error) {

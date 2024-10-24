@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/grafana/beyla-k8s-cache/pkg/server"
+	"github.com/grafana/beyla-k8s-cache/pkg/service"
 )
 
 const defaultPort = 50055
@@ -15,7 +15,7 @@ const defaultPort = 50055
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, Level: slog.LevelDebug})))
 
-	ic := server.InformersCache{
+	ic := service.InformersCache{
 		Port: defaultPort,
 		// TODO: make configurable
 		ResyncPeriod: 30 * time.Minute,
