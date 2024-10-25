@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/grafana/beyla-k8s-cache/pkg/meta"
 	"github.com/grafana/beyla-k8s-cache/pkg/service"
 )
 
@@ -17,8 +18,6 @@ func main() {
 
 	ic := service.InformersCache{
 		Port: defaultPort,
-		// TODO: make configurable
-		ResyncPeriod: 30 * time.Minute,
 	}
 	portStr := os.Getenv("BEYLA_K8S_CACHE_PORT")
 	if portStr != "" {
@@ -29,7 +28,9 @@ func main() {
 		}
 	}
 
-	if err := ic.Run(context.Background()); err != nil {
+	if err := ic.Run(context.Background(),
+		// TODO: make it configurable
+		meta.WithResyncPeriod(30*time.Minute)); err != nil {
 		slog.Error("starting informers' cache service", "error", err)
 		os.Exit(-1)
 	}

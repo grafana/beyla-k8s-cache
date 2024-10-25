@@ -8,7 +8,7 @@ GOARCH ?= amd64
 PROTOC_IMAGE = docker.io/mariomac/protoc-go:latest
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(/grafana/beyla-k8s-cache/pkg/informer/)"
+EXCLUDE_COVERAGE_FILES="(.pb.go)"
 
 # DRONE_TAG is set from Drone. Required for building container images.
 RELEASE_VERSION := $(shell git describe --tags --always)
