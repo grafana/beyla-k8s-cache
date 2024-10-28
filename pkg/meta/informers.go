@@ -46,4 +46,9 @@ func (inf *Informers) Subscribe(observer Observer) {
 			})
 		}
 	}
+	// notify the end of synchronization, so the client knows that already has a snapshot
+	// of all the existing resources
+	observer.On(&informer.Event{
+		Type: informer.EventType_SYNC_FINISHED,
+	})
 }

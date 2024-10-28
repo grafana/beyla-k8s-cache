@@ -101,9 +101,14 @@ func TestAPIs(t *testing.T) {
 		return svcClient.Start(ctx) == nil
 	}, timeout, 100*time.Millisecond)
 
-	// wait for the service to be up (should start receiving entities)
-	_ = ReadChannel(t, svcClient.Messages, timeout)
+	// wait for the service to have sent the initial snapshot of entities
+	// (at the end, will send the "SYNC_FINISHED" event)
+	test.Eventually(t, timeout, func(t require.TestingT) {
+		event := ReadChannel(t, svcClient.Messages, timeout)
+		require.Equal(t, informer.EventType_SYNC_FINISHED, event.Type)
+	})
 
+	// WHEN a pod is created
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      "second-pod",
@@ -116,6 +121,7 @@ func TestAPIs(t *testing.T) {
 		},
 	}))
 
+	// THEN the informer cache sends the notification to its subscriptors
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		event := ReadChannel(t, svcClient.Messages, timeout)
 		assert.Equal(t, informer.EventType_CREATED, event.Type)
